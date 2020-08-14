@@ -75,6 +75,7 @@
 #include <PID.h> // to control a PWN pin depending on a reading (proportional–integral–derivative controller)
 
 
+
 // Constants and variables's definition
 
 // MEGA's inputs
@@ -137,10 +138,8 @@ float cutOffLimit = 1.00; // Ampere
 float cutOff = MY_CURRENT_SENSOR_SENSITIVITY * cutOffLimit; // V/A · A → Volts
 float voltage; // Volts
 
-
 // Revolution constants (ref [4])
 const uint8_t VCNL4000_ADDRESS = 0x13;
-
 const uint8_t VCNL4000_COMMAND = 0x80;
 const uint8_t VCNL4000_PRODUCTID = 0x81;
 const uint8_t VCNL4000_IRLED = 0x83;
@@ -149,38 +148,51 @@ const uint8_t VCNL4000_AMBIENTDATA = 0x85;
 const uint8_t VCNL4000_PROXIMITYDATA = 0x87;
 const uint8_t VCNL4000_SIGNALFREQ = 0x89;
 const uint8_t VCNL4000_PROXINITYADJUST = 0x8A;
- 
 const int VCNL4000_3M125 = 0;
 const int VCNL4000_1M5625 = 1;
 const int VCNL4000_781K25 = 2;
 const int VCNL4000_390K625 = 3;
- 
 const uint8_t VCNL4000_MEASUREAMBIENT = 0x10;
 const uint8_t VCNL4000_MEASUREPROXIMITY = 0x08;
 const uint8_t VCNL4000_AMBIENTREADY = 0x40;
 const uint8_t VCNL4000_PROXIMITYREADY = 0x20;
 
-// Revolution variables
-
 // Conversion factor
-const float ANALOG_SCALE_TO_V = (5.0 / 1023.0); // coefficient see Ref [5]
+const float ANALOG_SCALE_TO_V = (5.0 / 1023.0); // coefficient (Ref [5])
 
+// Serial constant
+const int SERIAL_SPEED = 9600; // bps → bits per second
+
+
+// Configuration of the system
 void setup() {
-  // put your setup code here, to run once:
+
+// Open serial port & set his data rate
+Serial.begin(SERIAL_SPEED);
+
+// 
 
 }
 
+
+
+// Continuous communications of the system
 void loop() {
-  // put your main code here, to run repeatedly:
 
 }
+
+
+
+// Fonctions used in setup() and loop()
+
+
 
 /*---------------------------------------------------------------------------------------------------
- * Code references:
+ * Code's references:
  * [1] AC 220V Heater Temperature PID and TRIAC control. (2018, avril 8). https://www.youtube.com/watch?v=P6mbBJDIvxI
  * [2] Build An Infrared Thermometer. (2020, mars 28). https://www.youtube.com/watch?v=UID87M-IKsg
  * [3] Measure current with ACS758 Current Sensor and LCD1602-I2C with Arduino. (2018, juin 20). https://www.youtube.com/watch?v=tug9wjCwDQA
  * [4] VCNL4000 Entfernungssensor, Helligkeitssensor am Arduino. (2014, décembre 16). https://www.youtube.com/watch?v=Rp5NcXffsBE 
- * 
+ * ***
  * [5] analogRead()—Arduino Reference. (s. d.). Consulté 13 août 2020, à l’adresse https://www.arduino.cc/reference/en/language/functions/analog-io/analogread/
 ---------------------------------------------------------------------------------------------------*/

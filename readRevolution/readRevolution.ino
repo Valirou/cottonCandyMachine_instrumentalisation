@@ -3,6 +3,7 @@
 
 // Example sketch for talking to the VCNL4000 i2c proximity/light sensor
 // Written by Adafruit! Public domain.
+// From https://github.com/adafruit/Adafruit-VCNL40X0-PCB/blob/master/vcnl4000.ino
 // To use: Connect VCC to 3.3-5V (5V is best if it is available), GND to
 // ground, SCL to i2c clock (on classic arduinos, Analog 5), SDA
 // to i2c data (on classic arduinos Analog 4). The 3.3v pin is
@@ -12,17 +13,6 @@
 // You can pick one up at the Adafruit shop: www.adafruit.com/products/466
  
 #include <Wire.h>
- 
-// Example sketch for talking to the VCNL4000 i2c proximity/light sensor
-// Written by Adafruit! Public domain.
-// To use: Connect VCC to 3.3-5V (5V is best if it is available), GND to
-//         ground, SCL to i2c clock (on classic arduinos, Analog 5), SDA
-//         to i2c data (on classic arduinos Analog 4). The 3.3v pin is
-//         an ouptut if you need 3.3V
-// This sensor is 5V compliant so you can use it with 3.3 or 5V micros
- 
-// You can pick one up at the Adafruit shop: www.adafruit.com/products/466
- 
  
 // the i2c address
 #define VCNL4000_ADDRESS 0x13
