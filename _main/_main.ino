@@ -168,6 +168,7 @@ const uint8_t VCNL4000_MEASUREPROXIMITY = 0x08;
 const uint8_t VCNL4000_AMBIENTREADY = 0x40;
 const uint8_t VCNL4000_PROXIMITYREADY = 0x20;
 const int MIN_PROXIMITY = 2100; // unknown unit
+const int DELAY_READING_PROX = 5; // approx 3600 RPM → 60 rev/s → 1/60 s/rev → ≈0.017 s/rev → 17 ms/rev; safetyMargin → 5 ms
 
 // Revolution variable
 int rpm; // revolution per minute
@@ -227,12 +228,15 @@ void loop() {
 
   // Read the proximity
   proximity = read16(VCNL4000_PROXIMITYDATA);
-/*
+
   // Count a revolution
   if ( MIN_PROXIMITY < proximity ) {
-    revolution += 1;
+    revolution++;
+    // Make sure to count only revolution during the range we are at proximity
+    while ( MIN_PROXIMITY < proximity ) {
+      delay(DELAY_READING_PROX); 
+    }
   }
-*/ // brainstorm, to be elaborate
   
   // Display of all data in the serial monitor (table)
   
@@ -283,4 +287,5 @@ uint16_t read16(uint8_t address)
  * [5] analogRead()—Arduino Reference. (s. d.). Consulté 13 août 2020, à l’adresse https://www.arduino.cc/reference/en/language/functions/analog-io/analogread/
  * [6] Arduino—WireBegin. (s. d.). Consulté 14 août 2020, à l’adresse https://www.arduino.cc/en/Reference/WireBegin
  * [7] analogWrite()—Arduino Reference. (s. d.). Consulté 14 août 2020, à l’adresse https://www.arduino.cc/reference/en/language/functions/analog-io/analogwrite/
+ * [8] Easy Peasy Tachometer. (s. d.). Arduino Project Hub. Consulté 28 juillet 2020, à l’adresse https://create.arduino.cc/projecthub/PracticeMakesBetter/easy-peasy-tachometer-20e73a
 ---------------------------------------------------------------------------------------------------*/
