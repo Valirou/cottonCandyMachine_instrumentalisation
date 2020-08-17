@@ -42,7 +42,7 @@
  *  GND               → GND bus
  *  VIOUT             → A0
  *  In AC circuit :
- *  IN                → SSR ...
+ *  IN                → SSR pin 2
  *  OUT               → heating element
  *  **************************************************************************************************
  *  Proximity sensor
@@ -64,7 +64,7 @@
  *  4               → GND bus
  *  In AC circuit :
  *  1               → heating switch (120 VAC supply)
- *  2               → heating element
+ *  2               → IN current sensor → heating elements
  *  **************************************************************************************************
  ---------------------------------------------------------------------------------------------------*/
 
@@ -86,13 +86,16 @@ const int SCL_PIN = 21;
 // MEGA's outputs
 const int SSR_PULSE_PIN = 2;
 
+// MEGA's external interrupt pin (ref [9])
+const int INTERRUPT_PIN = SDA_PIN; // seem to be a bad idea, how can I associate the address's value?
+
 // PID constants and object
 const double TEMP_SETPOINT = 160; // °C
 const double TEMP_RANGE =  0.5; // °C
 const double KP = 1; // proportional's coefficient
 const double KI = 0; // integral's coefficient 
 const double KD = 0; // derivative's coefficient
-PID temp_PID = PID( SSR_PULSE_PIN, TEMP_SETPOINT, TEMP_RANGE, KP, KI, KD );
+PID temp_PID = PID( TEMP_SETPOINT, TEMP_RANGE, KP, KI, KD );
 
 // PID variable
 double temp_correction; // ratio
@@ -168,12 +171,13 @@ const uint8_t VCNL4000_MEASUREPROXIMITY = 0x08;
 const uint8_t VCNL4000_AMBIENTREADY = 0x40;
 const uint8_t VCNL4000_PROXIMITYREADY = 0x20;
 const int MIN_PROXIMITY = 2100; // unknown unit
-const int DELAY_READING_PROX = 5; // approx 3600 RPM → 60 rev/s → 1/60 s/rev → ≈0.017 s/rev → 17 ms/rev; safetyMargin → 5 ms
 
 // Revolution variable
 int rpm; // revolution per minute
-int revolution; // complete rotation
+volatile int revolution = 0; // complete rotation (volatile because of interrupt)
 unsigned int proximity; // unknown unit
+int oldTime = 0; // ms
+int TimeIntervalForRev; // ms
 
 // Conversion factor
 const float ANALOG_SCALE_TO_V = (5.0 / 1023.0); // coefficient (Ref [5])
@@ -200,6 +204,9 @@ void setup() {
 
   // Enable reading from sensors
   mlx.begin(); 
+
+  // Specified there is a interrupt in the programm and what are his conditions to happen
+  attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), isr_RPM, RISING);
 }
 
 
@@ -207,12 +214,12 @@ void setup() {
 // Continuous communications of the system
 void loop() {
 
-  // Read the temperature
+  // Read the temperatures
   headTemp = TEMP_ERROR + mlx.readObjectTempC();
   ambiantTemp = mlx.readAmbientTempC();
   
   // Find the correction to apply in fonction of PWM pins's duty cycle → between 0 & 255 (ref [7])
-  temp_correction = temp_PID.run(headTemp);
+  temp_correction = temp_PID.PWM_run(SSR_PULSE_PIN, headTemp);
   
   // Apply correction for the heating element
   analogWrite( SSR_PULSE_PIN, temp_correction );
@@ -226,18 +233,31 @@ void loop() {
   // Current in fonction of the voltage(QOV) and the sensitivity
   current = voltage / MY_CURRENT_SENSOR_SENSITIVITY;
 
+/*
   // Read the proximity
   proximity = read16(VCNL4000_PROXIMITYDATA);
+*/
 
-  // Count a revolution
-  if ( MIN_PROXIMITY < proximity ) {
-    revolution++;
-    // Make sure to count only revolution during the range we are at proximity
-    while ( MIN_PROXIMITY < proximity ) {
-      delay(DELAY_READING_PROX); 
-    }
-  }
+  // (Ref [8])
+  // Turn off the interrupt to let the revolution number how it is while calculating RPM
+  detachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN));
   
+  // Calculate the time for revolutions : 
+  //(ms since MEGA is running)- (the beginning time of a rotation in function of running time)
+  TimeIntervalForRev = millis() - oldTime; 
+
+  // Calculate the RPM
+  rpm = ( revolution / TimeIntervalForRev ) * 60000; // rev/ms * ( (60s/min) * (1000ms/s) ) → RPM
+  
+  // Define the starting time of a new cycle of rotations
+  oldTime = millis();
+
+  // Restart the revolution counter
+  revolution = 0;
+
+  // Restart the interrupt 
+  attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), isr_RPM, RISING);
+
   // Display of all data in the serial monitor (table)
   
 }
@@ -247,8 +267,8 @@ void loop() {
 // Fonctions used in setup() and loop()
 
 // Read 16 bits (2 bytes) of data from the proximity sensor (VCNL4000) at a specified addresse (Ref [4])
-uint16_t read16(uint8_t address)
-{
+uint16_t read16(uint8_t address) { 
+  
   uint16_t data;
  
   Wire.beginTransmission(VCNL4000_ADDRESS);
@@ -277,6 +297,15 @@ uint16_t read16(uint8_t address)
 }
 
 
+
+// Interrupt service routine (isr) to count revolutions → suspended the programm wherever he is up to
+// and priorise the action to add a revolution to the counter when required
+void isr_RPM() {
+  revolution++;
+}
+
+
+
 /*---------------------------------------------------------------------------------------------------
  * Code's references:
  * [1] AC 220V Heater Temperature PID and TRIAC control. (2018, avril 8). https://www.youtube.com/watch?v=P6mbBJDIvxI
@@ -287,5 +316,8 @@ uint16_t read16(uint8_t address)
  * [5] analogRead()—Arduino Reference. (s. d.). Consulté 13 août 2020, à l’adresse https://www.arduino.cc/reference/en/language/functions/analog-io/analogread/
  * [6] Arduino—WireBegin. (s. d.). Consulté 14 août 2020, à l’adresse https://www.arduino.cc/en/Reference/WireBegin
  * [7] analogWrite()—Arduino Reference. (s. d.). Consulté 14 août 2020, à l’adresse https://www.arduino.cc/reference/en/language/functions/analog-io/analogwrite/
+ * ***
  * [8] Easy Peasy Tachometer. (s. d.). Arduino Project Hub. Consulté 28 juillet 2020, à l’adresse https://create.arduino.cc/projecthub/PracticeMakesBetter/easy-peasy-tachometer-20e73a
----------------------------------------------------------------------------------------------------*/
+ * ***
+ * [9] Thangavel, Pramoth. (2019, février 12). Arduino Interrupts Tutorial. Circuit Digest. https://circuitdigest.com/microcontroller-projects/arduino-interrupt-tutorial-with-examples
+ ---------------------------------------------------------------------------------------------------*/
