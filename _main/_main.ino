@@ -91,7 +91,7 @@ const int INTERRUPT_PIN = SDA_PIN; // seem to be a bad idea, how can I associate
 
 // PID constants and object
 const double TEMP_SETPOINT = 160; // °C
-const double TEMP_RANGE =  0.5; // °C
+const double TEMP_RANGE =  0.03125; // %
 const double KP = 1; // proportional's coefficient
 const double KI = 0; // integral's coefficient 
 const double KD = 0; // derivative's coefficient
@@ -220,9 +220,6 @@ void loop() {
   
   // Find the correction to apply in fonction of PWM pins's duty cycle → between 0 & 255 (ref [7])
   temp_correction = temp_PID.PWM_run(SSR_PULSE_PIN, headTemp);
-  
-  // Apply correction for the heating element
-  analogWrite( SSR_PULSE_PIN, temp_correction );
 
   // Read the voltage
   voltage_read = ANALOG_SCALE_TO_V * analogRead(VIOUT_CURRENT_SENSOR_PIN);
