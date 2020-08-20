@@ -1,4 +1,4 @@
-// Programme from Robojax, Measure Current using Allegro ACS758 Current Sensor with LCD1602 (I2C) for Arduino, https://www.youtube.com/watch?v=tug9wjCwDQA
+// Program from Robojax, Measure Current using Allegro ACS758 Current Sensor with LCD1602 (I2C) for Arduino, https://www.youtube.com/watch?v=tug9wjCwDQA
 
  * 
  * Arduino Sketch for Allegro ACS758 Current Sensor with LCD1602 & I2C module

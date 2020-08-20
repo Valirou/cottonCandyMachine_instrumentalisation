@@ -1,4 +1,4 @@
-// Programme from judhi (Githubusername), forehead (githubrepertoire) https://www.youtube.com/watch?v=UID87M-IKsg
+// Program from judhi (Githubusername), forehead (githubrepertoire) https://www.youtube.com/watch?v=UID87M-IKsg
 
 // ---------- Forehead (Serial)
 // ---------- Arduino No Touch Thermometer

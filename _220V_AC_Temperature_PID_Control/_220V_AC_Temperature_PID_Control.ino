@@ -1,4 +1,4 @@
-// Programme from electronoobs, 220V AC Heater PID temperature control, https://www.youtube.com/watch?v=P6mbBJDIvxI
+// Program from electronoobs, 220V AC Heater PID temperature control, https://www.youtube.com/watch?v=P6mbBJDIvxI
 
 /*    Max6675 Module  ==>   Arduino
  *    CS              ==>     D10
