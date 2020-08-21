@@ -35,7 +35,7 @@
  *  **************************************************************************************************
  *  Current sensor
  *  from https://abra-electronics.com/sensors/sensors-current-en/sen0098-50a-current-sensorac-dc-sen0098.html
- *  Address (I2C) :
+ *  Address (I2C) : none
  *  
  *  SEN0098 (ACS758LCB-050B)  → Arduino MEGA or intermediate bus
  *  VCC               → 5V bus
@@ -45,15 +45,15 @@
  *  IN                → SSR pin 2
  *  OUT               → heating element
  *  **************************************************************************************************
- *  Proximity sensor
- *  from https://abra-electronics.com/sensors/sensors-proximity-en/466-vcnl4000-proximity-light-sensor.html
- *  Address (I2C) : 0x13
+ *  Hall effect sensor
+ *  from https://abra-electronics.com/sensors/sensors-magneto-en-2/a3144-hall-effect-sensor-a3144.html
+ *  Used with magnets buy from : https://abra-electronics.com/science/physics-en/mag-n-03-3x3mm-neodymium-rare-earth-round-magnet-pack-of-20.html
+ *  Address : none
  *  
- *  VCNL4010  → Arduino MEGA or intermediate bus
+ *  A3144     → Arduino MEGA or intermediate bus
  *  VIN       → 5V bus
  *  GND       → GND bus
- *  SCL       → SCL 21 bus
- *  SDA       → SDA 20 bus
+ *  OUTPUT    → PWM 3
  *  **************************************************************************************************
  *  Solid state relay (SSR)
  *  from http://www.crydom.com/en/products/panel-mount/perfect-fit/ac-output/series-1/d2450/
@@ -88,7 +88,7 @@ const int SCL_PIN = 21;
 const int SSR_PULSE_PIN = 2;
 
 // MEGA's external interrupt pin (ref [8])
-const int INTERRUPT_PIN = SDA_PIN; // seem to be a bad idea, how can I associate the address's value?
+const int INTERRUPT_PIN = 3;
 
 // PID constants and object
 const double TEMP_SETPOINT = 160; // °C
@@ -152,34 +152,57 @@ Robojax_AllegroACS_Current_Sensor ACS758( CURRENT_SENSOR_MODEL,VIOUT_CURRENT_SEN
 float currentRead;
 
 // Revolution constants (ref [4])
-const uint8_t VCNL4000_ADDRESS = 0x13;
-const uint8_t VCNL4000_COMMAND = 0x80;
-const uint8_t VCNL4000_PRODUCTID = 0x81;
-const uint8_t VCNL4000_IRLED = 0x83;
-const uint8_t VCNL4000_AMBIENTPARAMETER = 0x84;
-const uint8_t VCNL4000_AMBIENTDATA = 0x85;
-const uint8_t VCNL4000_PROXIMITYDATA = 0x87;
-const uint8_t VCNL4000_SIGNALFREQ = 0x89;
-const uint8_t VCNL4000_PROXINITYADJUST = 0x8A;
-const int VCNL4000_3M125 = 0;
-const int VCNL4000_1M5625 = 1;
-const int VCNL4000_781K25 = 2;
-const int VCNL4000_390K625 = 3;
-const uint8_t VCNL4000_MEASUREAMBIENT = 0x10;
-const uint8_t VCNL4000_MEASUREPROXIMITY = 0x08;
-const uint8_t VCNL4000_AMBIENTREADY = 0x40;
-const uint8_t VCNL4000_PROXIMITYREADY = 0x20;
-const int MIN_PROXIMITY = 2100; // unknown unit
+const byte PULSES_PER_REVOLUTION = 2;
+// If the period between pulses is too high, or even if the pulses stopped, then we would get stuck showing the
+// last value instead of a 0. Because of this we are going to set a limit for the maximum period allowed.
+// If the period is above this value, the RPM will show as 0.
+// The higher the set value, the longer lag/delay will have to sense that pulses stopped, but it will allow readings
+// at very low RPM.
+// Setting a low value is going to allow the detection of stop situations faster, but it will prevent having low RPM readings.
+// The unit is in microseconds.
+const unsigned long ZERO_TIMEOUT = 100000;  // For high response time, a good value would be 100000.
+                                           // For reading very low RPM, a good value would be 300000.
+const byte NUM_READING = 2;  // Number of samples for smoothing. The higher, the more smoothing, but it's going to
+                             // react slower to changes. 1 = no smoothing. Default: 2.
 
 // Revolution variable
-int rpm; // revolution per minute
-volatile int revolution = 0; // complete rotation (volatile because of interrupt)
-unsigned int proximity; // unknown unit
-int oldTime = 0; // ms
-int TimeIntervalForRev; // ms
+volatile unsigned long LastTimeWeMeasured;  // Stores the last time we measured a pulse so we can calculate the period.
+volatile unsigned long PeriodBetweenPulses = ZERO_TIMEOUT + 1000;  // Stores the period between pulses in microseconds.
+                       // It has a big number so it doesn't start with 0 which would be interpreted as a high frequency.
+volatile unsigned long PeriodAverage = ZERO_TIMEOUT + 1000;  // Stores the period between pulses in microseconds in total, if we are taking multiple pulses.
+                       // It has a big number so it doesn't start with 0 which would be interpreted as a high frequency.
+unsigned long FrequencyRaw;  // Calculated frequency, based on the period. This has a lot of extra decimals without the decimal point.
+unsigned long FrequencyReal;  // Frequency without decimals.
+unsigned long rpm;  // Raw RPM without any processing.
+unsigned int PulseCounter = 1;  // Counts the amount of pulse readings we took so we can average multiple pulses before calculating the period.
 
-// Conversion factor
-const float ANALOG_SCALE_TO_V = (5.0 / 1023.0); // coefficient (Ref [5])
+unsigned long PeriodSum; // Stores the summation of all the periods to do the average.
+
+unsigned long LastTimeCycleMeasure = LastTimeWeMeasured;  // Stores the last time we measure a pulse in that cycle.
+                                    // We need a variable with a value that is not going to be affected by the interrupt
+                                    // because we are going to do math and functions that are going to mess up if the values
+                                    // changes in the middle of the cycle.
+unsigned long CurrentMicros = micros();  // Stores the micros in that cycle.
+                                         // We need a variable with a value that is not going to be affected by the interrupt
+                                         // because we are going to do math and functions that are going to mess up if the values
+                                         // changes in the middle of the cycle.
+
+// We get the RPM by measuring the time between 2 or more pulses so the following will set how many pulses to
+// take before calculating the RPM. 1 would be the minimum giving a result every pulse, which would feel very responsive
+// even at very low speeds but also is going to be less accurate at higher speeds.
+// With a value around 10 you will get a very accurate result at high speeds, but readings at lower speeds are going to be
+// farther from eachother making it less "real time" at those speeds.
+// There's a function that will set the value depending on the speed so this is done automatically.
+unsigned int AmountOfReadings = 1;
+
+unsigned int ZeroDebouncingExtra;  // Stores the extra value added to the ZERO_TIMEOUT to debounce it.
+                                   // The ZERO_TIMEOUT needs debouncing so when the value is close to the threshold it
+                                   // doesn't jump from 0 to the value. This extra value changes the threshold a little
+                                   // when we show a 0.
+unsigned long readings[NUM_READING];  // The input.
+unsigned long readIndex;  // The index of the current reading.
+unsigned long total;  // The running total.
+unsigned long average;  // The RPM value after applying the smoothing.
 
 // Serial constant
 const int SERIAL_SPEED = 9600; // bps → bits per second
@@ -206,6 +229,9 @@ void setup() {
 
   // Specified there is a interrupt in the programm and what are his conditions to happen
   attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), isr_RPM, RISING);
+
+  // Give time to the hall effet sensor to get enough micros() → do not divided by negatives values
+  delay(1000);
 }
 
 
@@ -224,24 +250,54 @@ void loop() {
   currentRead = ACS758.getCurrent();
 
   // (Ref [4])
-  // Turn off the interrupt to let the revolution number how it is while calculating RPM
-  detachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN));
+  // The following is going to store the two values that might change in the middle of the cycle.
+  // We are going to do math and functions with those values and they can create glitches if they change in the
+  // middle of the cycle.
+  LastTimeCycleMeasure = LastTimeWeMeasured;  // Store the LastTimeWeMeasured in a variable.
+  CurrentMicros = micros();  // Store the micros() in a variable.
+
+  // CurrentMicros should always be higher than LastTimeWeMeasured, but in rare occasions that's not true.
+  // I'm not sure why this happens, but my solution is to compare both and if CurrentMicros is lower than
+  // LastTimeCycleMeasure I set it as the CurrentMicros.
+  // The need of fixing this is that we later use this information to see if pulses stopped.
+  if(CurrentMicros < LastTimeCycleMeasure){
+    LastTimeCycleMeasure = CurrentMicros;
+  }
+
+  // Calculate the frequency:
+  FrequencyRaw = 10000000000 / PeriodAverage;  // Calculate the frequency using the period between pulses.
+
+  // Detect if pulses stopped or frequency is too low, so we can show 0 Frequency:
+  if(PeriodBetweenPulses > ZERO_TIMEOUT - ZeroDebouncingExtra || CurrentMicros - LastTimeCycleMeasure > ZERO_TIMEOUT - ZeroDebouncingExtra){  
+    // If the pulses are too far apart that we reached the timeout for zero:
+    FrequencyRaw = 0;  // Set frequency as 0.
+    ZeroDebouncingExtra = 2000;  // Change the threshold a little so it doesn't bounce.
+  }
+  else{
+    ZeroDebouncingExtra = 0;  // Reset the threshold to the normal value so it doesn't bounce.
+  }
+  FrequencyReal = FrequencyRaw / 10000;  // Get frequency without decimals.
+                                          // This is not used to calculate RPM but we remove the decimals just in case
+                                          // you want to print it.
+
+  // Calculate the RPM:
+  rpm = FrequencyRaw / PULSES_PER_REVOLUTION * 60;  // Frequency divided by amount of pulses per revolution multiply by
+                                                  // 60 seconds to get minutes.
+  rpm = rpm / 10000;  // Remove the decimals.
+
+  // Smoothing RPM:
+  total = total - readings[readIndex];  // Advance to the next position in the array.
+  readings[readIndex] = rpm;  // Takes the value that we are going to smooth.
+  total = total + readings[readIndex];  // Add the reading to the total.
+  readIndex = readIndex + 1;  // Advance to the next position in the array.
+
+  if (readIndex >= NUM_READING){
+    // If we're at the end of the array:
+    readIndex = 0;  // Reset array index.
+  }
   
-  // Calculate the time for revolutions : 
-  //(ms since MEGA is running)- (the beginning time of a rotation in function of running time)
-  TimeIntervalForRev = millis() - oldTime; 
-
-  // Calculate the RPM
-  rpm = ( revolution / TimeIntervalForRev ) * 60000; // rev/ms * ( (60s/min) * (1000ms/s) ) → RPM
-  
-  // Define the starting time of a new cycle of rotations
-  oldTime = millis();
-
-  // Restart the revolution counter
-  revolution = 0;
-
-  // Restart the interrupt 
-  attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), isr_RPM, RISING);
+  // Calculate the average:
+  average = total / NUM_READING;  // The average value it's the smoothed result.
 
   // Display of all data in the serial monitor (table)
   
@@ -251,44 +307,42 @@ void loop() {
 
 // Fonctions used in setup() and loop()
 
-// Read 16 bits (2 bytes) of data from the proximity sensor (VCNL4000) at a specified addresse (Ref [4])
-uint16_t read16(uint8_t address) { 
-  
-  uint16_t data;
- 
-  Wire.beginTransmission(VCNL4000_ADDRESS);
-#if ARDUINO >= 100
-  Wire.write(address);
-#else
-  Wire.send(address);
-#endif
-  Wire.endTransmission();
- 
-  Wire.requestFrom(VCNL4000_ADDRESS, 2);
-  while(!Wire.available());
-#if ARDUINO >= 100
-  data = Wire.read();
-  data <<= 8;
-  while(!Wire.available());
-  data |= Wire.read();
-#else
-  data = Wire.receive();
-  data <<= 8;
-  while(!Wire.available());
-  data |= Wire.receive();
-#endif
- 
-  return data;
-}
-
-
-
-// Interrupt service routine (isr) to count revolutions → suspended the programm wherever he is up to
-// and priorise the action to add a revolution to the counter when required
+// Interrupt service routine (isr) to calculate the period between pulses → suspended 
+// the program wherever he is up to and priorise/run this fonction (Ref [4])
 void isr_RPM() {
-  revolution++;
-}
+  PeriodBetweenPulses = micros() - LastTimeWeMeasured;  // Current "micros" minus the old "micros" when the last pulse happens.
+                                                        // This will result with the period (microseconds) between both pulses.
+                                                        // The way is made, the overflow of the "micros" is not going to cause any issue.
 
+  LastTimeWeMeasured = micros();  // Stores the current micros so the next time we have a pulse we would have something to compare with.
+
+  if(PulseCounter >= AmountOfReadings){
+    // If counter for amount of readings reach the set limit:
+    PeriodAverage = PeriodSum / AmountOfReadings;  // Calculate the final period dividing the sum of all readings by the
+                                                   // amount of readings to get the average.
+    PulseCounter = 1;  // Reset the counter to start over. The reset value is 1 because its the minimum setting allowed (1 reading).
+    PeriodSum = PeriodBetweenPulses;  // Reset PeriodSum to start a new averaging operation.
+
+    // Change the amount of readings depending on the period between pulses.
+    // To be very responsive, ideally we should read every pulse. The problem is that at higher speeds the period gets
+    // too low decreasing the accuracy. To get more accurate readings at higher speeds we should get multiple pulses and
+    // average the period, but if we do that at lower speeds then we would have readings too far apart (laggy or sluggish).
+    // To have both advantages at different speeds, we will change the amount of readings depending on the period between pulses.
+    // Remap period to the amount of readings:
+    int RemapedAmountOfReadings = map(PeriodBetweenPulses, 40000, 5000, 1, 10);  // Remap the period range to the reading range.
+    
+    // 1st value is what are we going to remap. In this case is the PeriodBetweenPulses.
+    // 2nd value is the period value when we are going to have only 1 reading. The higher it is, the lower RPM has to be to reach 1 reading.
+    // 3rd value is the period value when we are going to have 10 readings. The higher it is, the lower RPM has to be to reach 10 readings.
+    // 4th and 5th values are the amount of readings range.
+    RemapedAmountOfReadings = constrain(RemapedAmountOfReadings, 1, 10);  // Constrain the value so it doesn't go below or above the limits.
+    AmountOfReadings = RemapedAmountOfReadings;  // Set amount of readings as the remaped value.
+  }
+  else{
+    PulseCounter++;  // Increase the counter for amount of readings by 1.
+    PeriodSum = PeriodSum + PeriodBetweenPulses;  // Add the periods so later we can average.
+  }
+}
 
 
 /*---------------------------------------------------------------------------------------------------
